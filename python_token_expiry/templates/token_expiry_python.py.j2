@@ -1,0 +1,134 @@
+import requests
+import json
+import dateutil.parser
+from datetime import tzinfo, timedelta, datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+ZERO = timedelta(0)
+
+class UTC(tzinfo):
+  def utcoffset(self, dt):
+    return ZERO
+  def tzname(self, dt):
+    return "UTC"
+  def dst(self, dt):
+    return ZERO
+
+utc = UTC()
+import smtplib
+
+requests.packages.urllib3.disable_warnings()
+
+headers = { 'Content-Type': 'application/json' }
+tower_user = "{{ admin }}"
+tower_pass = "{{ password }}"
+
+# Get token count vaule 
+# Token count is not really required here. Since, ID's are not deleted when tokens are revoked and refresed, for loop like (for i in range(1, count)) cannot be set based on Token count
+token_url_count = 'https://tower_url/api/v2/tokens/'
+response_token_count = requests.get(token_url_count, auth=(tower_user, tower_pass), headers=headers, verify=False)
+tokens_list = json.loads(response_token_count.text)
+tokens_list == response_token_count.json()
+token_count = tokens_list["count"]
+print(token_count)
+	
+# For loop to iterate and check each token and trigger notification for user
+# For loop is set on an avarage of tokens available and growth
+i=1
+for i in range(1,400):
+
+    # Get token expiry time for each user
+    token_url_loop = 'https://tower_url/api/v2/tokens/%d' % (i)
+    response = requests.get(token_url_loop, auth=(tower_user, tower_pass), headers=headers, verify=False)    
+    while (response.status_code == 200):
+        expiry_token_time = json.loads(response.text)
+        expiry_token_time == response.json()
+        time = expiry_token_time["expires"]
+        expiry_time = dateutil.parser.parse(time)
+        
+        current_time = datetime.now(utc)
+
+        days_interval = (expiry_time - current_time).days
+        #print(days_interval)
+
+        seconds_interval = (expiry_time - current_time).seconds
+
+        
+        hours_interval = days_interval * 24 + seconds_interval // 3600
+        #print(hours_interval)
+
+        # getting user email id to trigger notification
+        user = expiry_token_time["user"]
+        token_url_user = 'https://tower_url/api/v2/users/%d' % (user)
+        response_user = requests.get(token_url_user, auth=(tower_user, tower_pass), headers=headers, verify=False)
+        user_details = json.loads(response_user.text)
+        user_details == response_user.json()
+
+        user_name = user_details["username"]
+        if user_name == "admin":
+            to_user = "admin_email_id"
+        else:
+            to_user = user_details["email"]
+        
+        # SMTP information
+        from_ansible = "localhost"
+        to_user_admin = ("admin_email_id", to_user)
+
+        if days_interval == 2:
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = "Ansible Tower: PAT expiration"
+            msg['From'] = from_ansible
+            msg['To'] = to_user
+            # body
+            text = "Personal Access Token is going to expire in 2 days for user %s" % (user_name)
+            # Record the MIME types text/plain and text/html.
+            part1 = MIMEText(text, 'plain')
+            # Attach parts into message container.
+            msg.attach(part1)
+            # Send the message via local SMTP server.
+            s = smtplib.SMTP('localhost')
+            s.sendmail(from_ansible, to_user, msg.as_string())
+            s.quit()
+
+            break   
+
+        elif days_interval == 1:
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = "Gentl remainder* Ansible Tower: PAT expiration"
+            msg['From'] = from_ansible
+            msg['To'] = to_user
+            # body
+            text = "Personal Access Token is going to expire for user %s in 1 day. Please refresh your token." % (user_name)
+            # Record the MIME types text/plain and text/html.
+            part1 = MIMEText(text, 'plain')
+            # Attach parts into message container.
+            msg.attach(part1)
+            # Send the message via local SMTP server.
+            s = smtplib.SMTP('localhost')
+            s.sendmail(from_ansible, to_user, msg.as_string())
+            s.quit()
+            
+            break
+
+        elif hours_interval < 24:
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = "Gentl remainder** Ansible Tower: PAT expiration"
+            msg['From'] = from_ansible
+            msg['To'] = ', '.join(to_user_admin)
+            # body
+            text = "Personal Access Token is going to expire for user %s in %d hours. Please take necessary actions." % (user_name, hours_interval)
+            # Record the MIME types text/plain and text/html.
+            part1 = MIMEText(text, 'plain')
+            # Attach parts into message container.
+            msg.attach(part1)
+            # Send the message via local SMTP server.
+            s = smtplib.SMTP('localhost')
+            s.sendmail(from_ansible, to_user_admin, msg.as_string())
+            s.quit()
+        
+            break
+       
+        else:
+            print("checking condition for %d for days 2, day 1 and hours less than 24 and notification triggered to users") % (i)     
+i+=1      
+

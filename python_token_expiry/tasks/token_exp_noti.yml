@@ -1,0 +1,7 @@
+- name: copy python script to dest
+  template:
+    src: templates/token_expiry_python.py.j2
+    dest: /data/token_expiry_python.py
+
+- name: execute python script
+  command: python /data/token_expiry_python.py
